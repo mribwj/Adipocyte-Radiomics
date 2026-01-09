@@ -338,3 +338,130 @@ write.csv(train_set_with_pred, paste0(".csv", selected_seed, ".csv"), row.names 
 
 validation_set_with_pred <- cbind(validation_set[, c("Name", "label")], validation_set[,selected_features, drop = FALSE], pred = valid_predictions)
 write.csv(validation_set_with_pred, paste0("d.csv", selected_seed, ".csv"), row.names = FALSE)
+
+
+
+#  Brier Score, ROC, DCA, Calibration curves
+library(tidyverse)
+library(rms)
+library(survival)
+library(ggsci)
+library(ggthemes)
+library(eoffice)
+library(pROC)
+library(ggplot2)
+library(caret)
+library(ModelMetrics)
+
+data1 <- read.csv(".csv")
+
+#  Brier Score
+brier_score <- brier(data1$label, data1$s1)
+print(paste("Brier Score:", brier_score))
+
+ROC1 <- roc(data1$label, data1$s1)
+
+plot(ROC1, main = "ROC Curve", col = "#FF0000", lwd = 2, legacy.axes = TRUE,
+     xlab = "1 - Specificity", ylab = "Sensitivity")
+
+# Extract AUC value
+auc_value <- ROC1$auc
+print(paste("AUC:", auc_value))
+
+
+# Calculate 95% confidence interval for AUC
+auc_ci <- ci.auc(ROC1)
+print(paste("AUC 95% CI:", auc_ci[1], "-", auc_ci[3]))
+
+
+best_threshold <- coords(ROC1, "best", ret = "threshold")
+best_threshold_value <- best_threshold$threshold
+print(paste("最佳阈值:", best_threshold_value))
+
+legend(x = 0.4, y = 0.18,
+       legend = c(paste("Training =", auc_value)),
+       col = c("#FF0000"), lwd = 2, cex = 0.6)
+
+# Convert predicted probabilities to classification using optimal threshold
+data1$pred_class <- ifelse(data1$s1 >= best_threshold_value, 1, 0)
+
+# Ensure factor levels are correct - fix factor level issues
+data1$label <- factor(data1$label, levels = c(0, 1))
+data1$pred_class <- factor(data1$pred_class, levels = c(0, 1))
+
+# Calculate metrics manually using table function
+conf_matrix <- table(Predicted = data1$pred_class, Actual = data1$label)
+print("Confusion Matrix:")
+print(conf_matrix)
+
+# Calculate metrics from confusion matrix
+if(nrow(conf_matrix) == 2 && ncol(conf_matrix) == 2) {
+  TP <- conf_matrix[2, 2]  # True Positives
+  TN <- conf_matrix[1, 1]  # True Negatives
+  FP <- conf_matrix[2, 1]  # False Positives
+  FN <- conf_matrix[1, 2]  # False Negatives
+  
+  # Calculate metrics
+  sensitivity <- TP / (TP + FN)
+  specificity <- TN / (TN + FP)
+  accuracy <- (TP + TN) / (TP + TN + FP + FN)
+  ppv <- TP / (TP + FP)  # Positive Predictive Value (Precision)
+  npv <- TN / (TN + FN)  # Negative Predictive Value
+  
+  # Calculate F1 score
+  f1_score <- 2 * (ppv * sensitivity) / (ppv + sensitivity)
+  
+} else {
+  stop("Confusion matrix is not in 2x2 format, please check data")
+}
+
+# Output results
+cat("\n================ Model Performance Metrics ================\n")
+cat(sprintf("Sensitivity: %.4f (%.2f%%)\n", 
+            sensitivity, sensitivity * 100))
+cat(sprintf("Specificity: %.4f (%.2f%%)\n", 
+            specificity, specificity * 100))
+cat(sprintf("Accuracy: %.4f (%.2f%%)\n", 
+            accuracy, accuracy * 100))
+cat(sprintf("Positive Predictive Value (PPV/Precision): %.4f (%.2f%%)\n", 
+            ppv, ppv * 100))
+cat(sprintf("Negative Predictive Value (NPV): %.4f (%.2f%%)\n", 
+            npv, npv * 100))
+cat(sprintf("F1 Score: %.4f\n", f1_score))
+
+
+#  calibration curve
+model1 <- lrm(label ~ s1, data1, x = TRUE, y = TRUE)
+cal1 <- calibrate(model1, method = "boot", B = 1000)
+
+plot(cal1,
+     xlab = "Predicted Probability",
+     ylab = "Actual Probability",
+     cex.lab = 1.2, cex.axis = 1, cex.main = 1.2, cex.sub = 0.8,
+     legend = FALSE
+)
+lines(cal1[, c("predy", "calibrated.corrected")],
+      type = 'l',
+      lwd = 2,
+      col = "#FF0000")
+abline(0, 1,
+       lty = 2,
+       lwd = 1,
+       col = "black")
+legend(0.6, 0.2,
+       c("Apparent", "Bias-corrected", "Ideal"),
+       lty = c(2, 1, 3),
+       lwd = c(1, 3, 3),
+       col = c("black", "#FF0000", "#FF0000"),
+       bty = "n")
+
+
+# DCA
+library(rmda)
+model1 <- decision_curve(label ~ s1, data = data1, family = binomial(link = 'logit'), thresholds = seq(0, 1, by = .045), bootstraps = 10)
+plot_decision_curve(model1, curve.names = "Training DCA", col = c("#FF0000"), confidence.intervals = FALSE)
+
+DCA1 <- decision_curve(label ~ s1, data = data1, thresholds = seq(0, 1, by = .05), bootstraps = 10, confidence.intervals = 0.95, study.design = "cohort")
+
+plot_decision_curve(DCA1,curve.names=c("Training DCA"),cost.benefit.axis =T,col=c("#FF0000"),confidence.intervals = FALSE,standardize=FALSE) 
+
