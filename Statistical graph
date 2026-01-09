@@ -1,0 +1,136 @@
+library(survival)
+library(survminer)
+library(ggplot2)
+library(eoffice)
+library(forestplot)
+library(dplyr)
+library(readr)
+library(gridExtra)
+
+#KM curve
+data <- read.csv(".csv")
+
+#data$group <- factor(data$group, levels = c(0, 1), labels = c("Favorable", "Unfavorable"))
+
+
+surv_object <- Surv(time = data$TimeOS, event = data$StatusOS)
+
+
+fit <- survfit(surv_object ~ s11, data = data)  
+
+
+plot <- ggsurvplot(
+  fit,
+  data = data,
+  legend.title = "RS",
+  legend.labs= c("low","high"),
+  font.x = 14,font.y = 14,font.legend = 12,font.tickslab = 12, font.title = 12, 
+  pval = FALSE,                 
+  pval.method = TRUE,           
+  conf.int = FALSE,              
+  risk.table = TRUE,
+  risk.table.x.text.size = 14,
+  risk.table.fontsize=4,
+  xlab = "Time(months)", 
+  ylab = "Survival probability",
+  palette= c("#000080","#FF0000")
+)
+
+p_value <- surv_pvalue(fit, data = data)$pval 
+if (p_value < 0.001) {
+  p_value_label <- "italic(p) < 0.001" 
+} else {
+  p_value_label <- paste0("italic(p) == ", format(p_value, digits = 3, scientific = FALSE)) # 否则显示正常的 p 值
+}
+
+
+plot$plot <- plot$plot + 
+  annotate(
+    "text",
+    x = max(data$TimeOS) * 0.1, 
+    y = 0.1,
+    label = p_value_label,
+    parse = TRUE,
+    size = 4
+  )
+
+print(plot)
+
+
+
+#forestplot
+
+result<- read.csv(".csv")
+View(result)
+attach(result)
+  
+fig <- forestplot(
+  result[, c(1,2,3)],       
+  mean = result[, 4],            
+  lower = result[, 5],           
+  upper = result[, 6],            
+  zero = 1,                       
+  boxsize = 0.3,                  
+  graph.pos = "right",            
+  graphwidth = unit(.25, "npc"),  
+  lineheight = unit(6, "mm"),   
+  xlab = "", 
+  xticks = c(0,0.5,1,2,3,4),
+  is.summary = c(T,F,T,F,T,F,T,F,T,F,T,F,F,T,F,T,F,T,F,T,F), 
+  title = "",  
+  txt_gp = fpTxtGp(               
+    label = gpar(cex = 1),      
+    ticks = gpar(cex = 1),         
+    xlab = gpar(cex = 0.8),       
+    title = gpar(cex = 1.2)),    
+  lwd.zero = 1,                    
+  lwd.ci = 2,                     
+  lwd.xaxis = 1,                  
+  lty.ci = 1.5,                   
+  ci.vertices = T,                
+  ci.vertices.height = 0.1,       
+  clip = c(0.1, 8),                
+  ineheight = unit(8, 'mm'),      
+  line.margin = unit(8, 'mm'),     
+  colgap = unit(6, 'mm'),          
+  #fn.ci_norm = "fpDrawDiamondCI",  
+  col = fpColors(                  
+    box = "royalblue",              
+    lines = "black",              
+    zero = "black"                
+  )
+)
+fig
+  
+topptx(width = 8.00,height = 5.70,filename = ".pptx")
+
+
+
+
+# violin plot
+
+# Read  data
+data2 <- read.csv(".csv")
+
+data2$label <- factor(data2$label, levels = c(0, 1), labels = c("negative", "positive"))
+
+# Perform Wilcoxon test 
+wilcox_test_valid <- wilcox.test(s1 ~ label, data = data2)
+
+# Create violin plot 
+p3 <- ggplot(data2, aes(x = label, y = s1, fill = label, color = label)) +
+  geom_violin(trim = FALSE, fill = "transparent") +  # Hollow violin plot
+  geom_boxplot(width = 0.1, fill = "white") +  # Boxplot with white fill
+  labs(
+    title = paste(" Set - Wilcoxon, p =", format(wilcox_test_valid$p.value, scientific = TRUE)),
+    x = "Adipocyte phenotypes",
+    y = "Radiomics score"
+  ) +
+  scale_color_manual(values = c("negative" = "#FF0000", "positive" = "#000080")) +  # Border colors
+  scale_y_continuous(
+    breaks = c(0, 0.4, 0.8),  # Set ticks at 0, 0.4, 0.8
+    limits = c(-0.2, 1)  # Force y-axis display range
+  ) +
+  theme_minimal()  # Use minimal theme to avoid distractions
+
+print(p3)
